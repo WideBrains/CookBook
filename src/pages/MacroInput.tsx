@@ -29,13 +29,6 @@ export default function MacroInput() {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 rounded-full mb-4">
-            <ChefHat className="w-8 h-8 text-primary" />
-          </div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">MacroFit Recipe Generator</h1>
-          <p className="text-muted-foreground text-lg">Create perfect recipes tailored to your nutritional goals</p>
-        </div>
 
         <ProgressIndicator currentStep={1} totalSteps={3} steps={['Macros', 'Inventory', 'Recipe']} />
 
