@@ -1,14 +1,39 @@
-import { Link, useLocation } from 'react-router-dom';
-import { ChefHat } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { ChefHat, LogOut, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { useEffect, useState } from 'react';
 
 export function Navigation() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    toast.success('Signed out successfully');
+    navigate('/');
+  };
 
   const navItems = [
     { path: '/', label: 'Home' },
-    { path: '/macro-input', label: 'Generate Recipe' },
-    { path: '/research', label: 'Research Mode' },
+    { path: '/macro-input', label: 'Generate' },
+    { path: '/saved-recipes', label: 'My Recipes' },
+    { path: '/research', label: 'Research' },
   ];
 
   return (
@@ -39,16 +64,47 @@ export function Navigation() {
                 {item.label}
               </Link>
             ))}
+            
+            {user ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSignOut}
+                className="ml-2"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/auth')}
+                className="ml-2"
+              >
+                <User className="w-4 h-4 mr-2" />
+                Sign In
+              </Button>
+            )}
           </div>
 
-          {/* Mobile Navigation - Simple version for now */}
-          <div className="md:hidden">
+          {/* Mobile Navigation */}
+          <div className="md:hidden flex items-center gap-2">
             <Link
               to="/macro-input"
               className="px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Generate
             </Link>
+            {user && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleSignOut}
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         </div>
       </div>
