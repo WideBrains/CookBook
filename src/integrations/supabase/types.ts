@@ -14,7 +14,117 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          id: string
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id: string
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      research_runs: {
+        Row: {
+          available_equipment: Json
+          available_ingredients: Json
+          created_at: string | null
+          feasibility_status: string
+          id: string
+          macro_accuracy: Json
+          macro_targets: Json
+          model_type: string
+          recipe_result: Json
+          solve_time_ms: number
+          user_id: string | null
+        }
+        Insert: {
+          available_equipment: Json
+          available_ingredients: Json
+          created_at?: string | null
+          feasibility_status: string
+          id?: string
+          macro_accuracy: Json
+          macro_targets: Json
+          model_type: string
+          recipe_result: Json
+          solve_time_ms: number
+          user_id?: string | null
+        }
+        Update: {
+          available_equipment?: Json
+          available_ingredients?: Json
+          created_at?: string | null
+          feasibility_status?: string
+          id?: string
+          macro_accuracy?: Json
+          macro_targets?: Json
+          model_type?: string
+          recipe_result?: Json
+          solve_time_ms?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      saved_recipes: {
+        Row: {
+          cooking_time: number
+          created_at: string | null
+          equipment: Json
+          explanation: string | null
+          id: string
+          ingredients: Json
+          instructions: Json
+          macros: Json
+          optimization_model: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          cooking_time: number
+          created_at?: string | null
+          equipment: Json
+          explanation?: string | null
+          id?: string
+          ingredients: Json
+          instructions: Json
+          macros: Json
+          optimization_model?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          cooking_time?: number
+          created_at?: string | null
+          equipment?: Json
+          explanation?: string | null
+          id?: string
+          ingredients?: Json
+          instructions?: Json
+          macros?: Json
+          optimization_model?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
