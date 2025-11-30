@@ -7,8 +7,11 @@ import { Navigation } from "./components/Navigation";
 import Landing from "./pages/Landing";
 import MacroInput from "./pages/MacroInput";
 import KitchenInventory from "./pages/KitchenInventory";
+import ModelSelection from "./pages/ModelSelection";
 import RecipeResults from "./pages/RecipeResults";
 import Research from "./pages/Research";
+import Auth from "./pages/Auth";
+import SavedRecipes from "./pages/SavedRecipes";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,9 +25,12 @@ const App = () => (
         <Navigation />
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/auth" element={<Auth />} />
           <Route path="/macro-input" element={<MacroInput />} />
           <Route path="/inventory" element={<KitchenInventory />} />
+          <Route path="/model-selection" element={<ModelSelection />} />
           <Route path="/recipe" element={<RecipeResults />} />
+          <Route path="/saved-recipes" element={<SavedRecipes />} />
           <Route path="/research" element={<Research />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

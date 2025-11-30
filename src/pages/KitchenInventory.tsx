@@ -6,8 +6,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { ProgressIndicator } from '@/components/ProgressIndicator';
+import { ImageUpload } from '@/components/ImageUpload';
 import { INGREDIENTS, EQUIPMENT_OPTIONS } from '@/data/ingredients';
-import { ArrowLeft, ArrowRight, Search, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function KitchenInventory() {
@@ -55,6 +56,13 @@ export default function KitchenInventory() {
     setSelectedEquipment(newSet);
   };
 
+  const handleIngredientsDetected = (ingredientIds: string[]) => {
+    const newSet = new Set(selectedIngredients);
+    ingredientIds.forEach(id => newSet.add(id));
+    setSelectedIngredients(newSet);
+    toast.success(`Added ${ingredientIds.length} ingredients to your selection`);
+  };
+
   const handleGenerate = () => {
     if (selectedIngredients.size < 5) {
       toast.error('Please select at least 5 ingredients');
@@ -67,13 +75,13 @@ export default function KitchenInventory() {
 
     sessionStorage.setItem('selectedIngredients', JSON.stringify(Array.from(selectedIngredients)));
     sessionStorage.setItem('selectedEquipment', JSON.stringify(Array.from(selectedEquipment)));
-    navigate('/recipe');
+    navigate('/model-selection');
   };
 
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-6xl mx-auto">
-        <ProgressIndicator currentStep={2} totalSteps={3} steps={['Macros', 'Inventory', 'Recipe']} />
+        <ProgressIndicator currentStep={2} totalSteps={3} steps={['Macros', 'Inventory', 'Model']} />
 
         <Card className="p-8 mb-6">
           <h2 className="text-2xl font-semibold text-card-foreground mb-6">What ingredients do you have?</h2>
@@ -91,11 +99,11 @@ export default function KitchenInventory() {
             </div>
           </div>
 
-          <div className="mb-6 p-4 bg-secondary/30 rounded-lg border-2 border-dashed border-border">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground">
-              <Upload className="w-5 h-5" />
-              <span>Upload kitchen photo (coming soon)</span>
-            </div>
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3 text-foreground">
+              AI-Powered Ingredient Detection
+            </h3>
+            <ImageUpload onIngredientsDetected={handleIngredientsDetected} />
           </div>
 
           <div className="space-y-6">

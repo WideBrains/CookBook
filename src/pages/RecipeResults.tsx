@@ -2,31 +2,46 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { ProgressIndicator } from '@/components/ProgressIndicator';
 import { INGREDIENTS } from '@/data/ingredients';
-import { generateRecipe } from '@/utils/recipeGenerator';
-import { RecipeGenerationResult } from '@/types/recipe';
-import { ArrowLeft, RefreshCw, Clock, ChefHat, CheckCircle2, AlertCircle, Star } from 'lucide-react';
+import { solveLP, solveMILP, solveGenetic, solveGreedy, OptimizationModel } from '@/utils/optimizationModels';
+import { ArrowLeft, RefreshCw, Clock, ChefHat, CheckCircle2, AlertCircle, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import type { MacroTargets } from '@/types/recipe';
 
 export default function RecipeResults() {
   const navigate = useNavigate();
-  const [result, setResult] = useState<RecipeGenerationResult | null>(null);
-  const [rating, setRating] = useState(0);
+  const [recipe, setRecipe] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    generateNewRecipe();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    generateRecipe();
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const generateNewRecipe = () => {
+  const generateRecipe = async () => {
+    setIsLoading(true);
     try {
-      const macroTargets = JSON.parse(sessionStorage.getItem('macroTargets') || '{}');
+      const macroTargets: MacroTargets = JSON.parse(sessionStorage.getItem('macroTargets') || '{}');
       const selectedIngredientIds = JSON.parse(sessionStorage.getItem('selectedIngredients') || '[]');
       const selectedEquipment = JSON.parse(sessionStorage.getItem('selectedEquipment') || '[]');
+      const optimizationModel = (sessionStorage.getItem('optimizationModel') || 'lp') as OptimizationModel;
 
       if (!macroTargets.protein) {
-        navigate('/');
+        navigate('/macro-input');
         return;
       }
 
@@ -34,21 +49,128 @@ export default function RecipeResults() {
         selectedIngredientIds.includes(ing.id)
       );
 
-      const newResult = generateRecipe({
-        macroTargets,
-        availableIngredients,
-        availableEquipment: selectedEquipment,
-      });
+      // Select optimization model
+      let result;
+      switch (optimizationModel) {
+        case 'milp':
+          result = solveMILP(macroTargets, availableIngredients);
+          break;
+        case 'genetic':
+          result = solveGenetic(macroTargets, availableIngredients);
+          break;
+        case 'greedy':
+          result = solveGreedy(macroTargets, availableIngredients);
+          break;
+        default:
+          result = solveLP(macroTargets, availableIngredients);
+      }
 
-      setResult(newResult);
-      toast.success('Recipe generated successfully!');
+      if (!result.feasible) {
+        toast.error('Could not generate a feasible recipe with the selected ingredients');
+        navigate('/inventory');
+        return;
+      }
+
+      // Generate recipe details
+      const recipeTitle = generateTitle(result.ingredients, macroTargets.mealType);
+      const instructions = generateInstructions(result.ingredients, selectedEquipment, macroTargets.mealType);
+      const cookingTime = estimateCookingTime(result.ingredients);
+      const explanation = generateExplanation(macroTargets, result.macros, result.ingredients);
+
+      const recipeData = {
+        title: recipeTitle,
+        ingredients: result.ingredients,
+        instructions,
+        macros: result.macros,
+        cookingTime,
+        equipment: selectedEquipment,
+        explanation,
+        optimizationModel,
+        solveTimeMs: result.solveTimeMs,
+        objectiveValue: result.objectiveValue
+      };
+
+      setRecipe(recipeData);
+      toast.success(`Recipe generated in ${result.solveTimeMs.toFixed(0)}ms using ${optimizationModel.toUpperCase()}`);
+
+      // Save to research_runs if needed
+      if (user) {
+        await saveResearchRun(macroTargets, availableIngredients, selectedEquipment, optimizationModel, result, recipeData);
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to generate recipe');
+      console.error('Recipe generation error:', error);
+      toast.error('Failed to generate recipe');
       navigate('/inventory');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (!result) {
+  const saveResearchRun = async (targets: MacroTargets, ingredients: any[], equipment: string[], model: string, result: any, recipeData: any) => {
+    try {
+      const macroAccuracy = {
+        proteinError: Math.abs(result.macros.protein - targets.protein),
+        carbsError: Math.abs(result.macros.carbs - targets.carbs),
+        fatsError: Math.abs(result.macros.fats - targets.fats)
+      };
+
+      await supabase.from('research_runs').insert([{
+        macro_targets: targets as any,
+        available_ingredients: ingredients.map(i => i.id) as any,
+        available_equipment: equipment as any,
+        model_type: model,
+        solve_time_ms: Math.round(result.solveTimeMs),
+        recipe_result: recipeData as any,
+        macro_accuracy: macroAccuracy as any,
+        feasibility_status: result.feasible ? 'feasible' : 'infeasible'
+      }]);
+    } catch (error) {
+      console.error('Failed to save research run:', error);
+    }
+  };
+
+  const saveRecipe = async () => {
+    if (!user) {
+      toast.error('Please sign in to save recipes');
+      navigate('/auth');
+      return;
+    }
+
+    if (!recipe) return;
+
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.from('saved_recipes').insert([{
+        user_id: user.id,
+        title: recipe.title,
+        ingredients: recipe.ingredients as any,
+        instructions: recipe.instructions as any,
+        macros: recipe.macros as any,
+        cooking_time: recipe.cookingTime,
+        equipment: recipe.equipment as any,
+        explanation: recipe.explanation,
+        optimization_model: recipe.optimizationModel
+      }]);
+
+      if (error) throw error;
+      toast.success('Recipe saved successfully!');
+    } catch (error: any) {
+      toast.error('Failed to save recipe');
+      console.error(error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getMatchQuality = (actual: number, target: number): 'good' | 'fair' | 'poor' => {
+    const diff = Math.abs(actual - target);
+    const tolerance = target * 0.1; // 10% tolerance
+    if (diff <= tolerance) return 'good';
+    if (diff <= tolerance * 2) return 'fair';
+    return 'poor';
+  };
+
+  if (isLoading || !recipe) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -59,9 +181,8 @@ export default function RecipeResults() {
     );
   }
 
-  const { recipe, targetMatch } = result;
-  const macroTargets = JSON.parse(sessionStorage.getItem('macroTargets') || '{}');
-
+  const macroTargets: MacroTargets = JSON.parse(sessionStorage.getItem('macroTargets') || '{}');
+  
   const getMatchIcon = (quality: string) => {
     if (quality === 'good') return <CheckCircle2 className="w-5 h-5 text-success" />;
     if (quality === 'fair') return <AlertCircle className="w-5 h-5 text-warning" />;
@@ -71,134 +192,129 @@ export default function RecipeResults() {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        <ProgressIndicator currentStep={3} totalSteps={3} steps={['Macros', 'Inventory', 'Recipe']} />
+        <ProgressIndicator currentStep={3} totalSteps={3} steps={['Macros', 'Inventory', 'Model']} />
 
         <Card className="p-8 mb-6">
           <div className="flex items-start justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-card-foreground mb-2">{recipe.title}</h1>
               <div className="flex items-center gap-4 text-muted-foreground">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4" />
-                  <span>{recipe.cookingTime} mins</span>
+                  <span>{recipe.cookingTime} minutes</span>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <ChefHat className="w-4 h-4" />
-                  <span>{recipe.equipment.length} equipment</span>
+                  <span>{recipe.equipment.length} equipment items</span>
                 </div>
+                <Badge variant="secondary">{recipe.optimizationModel?.toUpperCase()}</Badge>
               </div>
             </div>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  onClick={() => setRating(star)}
-                  className="transition-colors"
-                >
-                  <Star
-                    className={cn(
-                      'w-6 h-6',
-                      star <= rating ? 'fill-accent text-accent' : 'text-muted'
-                    )}
-                  />
-                </button>
-              ))}
-            </div>
+            {user && (
+              <Button onClick={saveRecipe} disabled={isSaving}>
+                <Save className="mr-2 w-4 h-4" />
+                {isSaving ? 'Saving...' : 'Save Recipe'}
+              </Button>
+            )}
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
+          <div className="grid md:grid-cols-2 gap-8 mb-8">
             <div>
-              <h3 className="text-lg font-semibold mb-3">Ingredients</h3>
+              <h3 className="text-xl font-semibold mb-4 text-foreground">Ingredients</h3>
               <ul className="space-y-2">
-                {recipe.ingredients.map((ri, idx) => (
-                  <li key={idx} className="flex items-center gap-2 text-card-foreground">
-                    <div className="w-2 h-2 bg-primary rounded-full" />
-                    <span>{ri.quantity}g {ri.ingredient.name}</span>
+                {recipe.ingredients.map((item: any, idx: number) => (
+                  <li key={idx} className="flex justify-between items-center p-3 bg-secondary/30 rounded-lg">
+                    <span className="font-medium text-foreground">{item.ingredient.name}</span>
+                    <span className="text-muted-foreground">{item.quantity}g</span>
                   </li>
                 ))}
               </ul>
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold mb-3">Equipment Needed</h3>
+              <h3 className="text-xl font-semibold mb-4 text-foreground">Equipment Needed</h3>
               <ul className="space-y-2">
-                {recipe.equipment.map((eq, idx) => (
-                  <li key={idx} className="flex items-center gap-2 text-card-foreground capitalize">
-                    <div className="w-2 h-2 bg-primary rounded-full" />
-                    <span>{eq.replace('-', ' ')}</span>
+                {recipe.equipment.map((item: string, idx: number) => (
+                  <li key={idx} className="p-3 bg-secondary/30 rounded-lg text-foreground">
+                    {item}
                   </li>
                 ))}
               </ul>
             </div>
           </div>
 
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-3">Instructions</h3>
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold mb-4 text-foreground">Instructions</h3>
             <ol className="space-y-3">
-              {recipe.instructions.map((instruction, idx) => (
-                <li key={idx} className="flex gap-3">
-                  <span className="flex-shrink-0 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-semibold">
+              {recipe.instructions.map((instruction: string, idx: number) => (
+                <li key={idx} className="flex gap-4">
+                  <span className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">
                     {idx + 1}
                   </span>
-                  <span className="text-card-foreground pt-0.5">{instruction}</span>
+                  <p className="flex-1 pt-1 text-foreground">{instruction}</p>
                 </li>
               ))}
             </ol>
           </div>
 
-          <div className="bg-secondary/30 rounded-lg p-4 mb-6">
-            <h3 className="text-lg font-semibold mb-3">Nutritional Breakdown</h3>
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold mb-4 text-foreground">Nutritional Information</h3>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left py-2 px-3 font-semibold">Macro</th>
-                    <th className="text-center py-2 px-3 font-semibold">Target</th>
-                    <th className="text-center py-2 px-3 font-semibold">Actual</th>
-                    <th className="text-center py-2 px-3 font-semibold">Match</th>
+                    <th className="text-left py-3 text-foreground">Nutrient</th>
+                    <th className="text-right py-3 text-foreground">Target</th>
+                    <th className="text-right py-3 text-foreground">Actual</th>
+                    <th className="text-center py-3 text-foreground">Match</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-border/50">
-                    <td className="py-3 px-3 font-medium">Protein</td>
-                    <td className="text-center py-3 px-3">{macroTargets.protein}g</td>
-                    <td className="text-center py-3 px-3 font-semibold">{recipe.macros.protein}g</td>
-                    <td className="flex justify-center py-3 px-3">{getMatchIcon(targetMatch.protein)}</td>
+                  <tr className="border-b border-border">
+                    <td className="py-3 text-foreground font-medium">Protein</td>
+                    <td className="text-right py-3 text-muted-foreground">{macroTargets.protein}g</td>
+                    <td className="text-right py-3 text-foreground font-semibold">{recipe.macros.protein.toFixed(1)}g</td>
+                    <td className="text-center py-3">
+                      {getMatchIcon(getMatchQuality(recipe.macros.protein, macroTargets.protein))}
+                    </td>
                   </tr>
-                  <tr className="border-b border-border/50">
-                    <td className="py-3 px-3 font-medium">Carbs</td>
-                    <td className="text-center py-3 px-3">{macroTargets.carbs}g</td>
-                    <td className="text-center py-3 px-3 font-semibold">{recipe.macros.carbs}g</td>
-                    <td className="flex justify-center py-3 px-3">{getMatchIcon(targetMatch.carbs)}</td>
+                  <tr className="border-b border-border">
+                    <td className="py-3 text-foreground font-medium">Carbohydrates</td>
+                    <td className="text-right py-3 text-muted-foreground">{macroTargets.carbs}g</td>
+                    <td className="text-right py-3 text-foreground font-semibold">{recipe.macros.carbs.toFixed(1)}g</td>
+                    <td className="text-center py-3">
+                      {getMatchIcon(getMatchQuality(recipe.macros.carbs, macroTargets.carbs))}
+                    </td>
                   </tr>
-                  <tr className="border-b border-border/50">
-                    <td className="py-3 px-3 font-medium">Fats</td>
-                    <td className="text-center py-3 px-3">{macroTargets.fats}g</td>
-                    <td className="text-center py-3 px-3 font-semibold">{recipe.macros.fats}g</td>
-                    <td className="flex justify-center py-3 px-3">{getMatchIcon(targetMatch.fats)}</td>
+                  <tr className="border-b border-border">
+                    <td className="py-3 text-foreground font-medium">Fats</td>
+                    <td className="text-right py-3 text-muted-foreground">{macroTargets.fats}g</td>
+                    <td className="text-right py-3 text-foreground font-semibold">{recipe.macros.fats.toFixed(1)}g</td>
+                    <td className="text-center py-3">
+                      {getMatchIcon(getMatchQuality(recipe.macros.fats, macroTargets.fats))}
+                    </td>
                   </tr>
                   <tr>
-                    <td className="py-3 px-3 font-medium">Calories</td>
-                    <td className="text-center py-3 px-3">-</td>
-                    <td className="text-center py-3 px-3 font-semibold">{recipe.macros.calories}</td>
-                    <td className="text-center py-3 px-3">-</td>
+                    <td className="py-3 text-foreground font-medium">Total Calories</td>
+                    <td className="text-right py-3 text-muted-foreground">~{(macroTargets.protein * 4 + macroTargets.carbs * 4 + macroTargets.fats * 9).toFixed(0)}</td>
+                    <td className="text-right py-3 text-foreground font-semibold">{recipe.macros.calories.toFixed(0)}</td>
+                    <td className="text-center py-3">-</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          <div className="bg-primary/10 rounded-lg p-4 border border-primary/20">
-            <h3 className="text-lg font-semibold mb-2 text-primary">Why this recipe?</h3>
-            <p className="text-card-foreground">{recipe.explanation}</p>
+          <div className="p-4 bg-secondary/30 rounded-lg">
+            <h4 className="font-semibold mb-2 text-foreground">Why This Recipe?</h4>
+            <p className="text-muted-foreground">{recipe.explanation}</p>
           </div>
         </Card>
 
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Button
             variant="outline"
             size="lg"
-            className="h-14 text-lg"
             onClick={() => navigate('/inventory')}
           >
             <ArrowLeft className="mr-2 w-5 h-5" />
@@ -207,16 +323,14 @@ export default function RecipeResults() {
           <Button
             variant="outline"
             size="lg"
-            className="h-14 text-lg"
-            onClick={generateNewRecipe}
+            onClick={generateRecipe}
           >
             <RefreshCw className="mr-2 w-5 h-5" />
-            Another Recipe
+            Try Another
           </Button>
           <Button
             size="lg"
-            className="h-14 text-lg"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/macro-input')}
           >
             Adjust Macros
           </Button>
@@ -224,4 +338,47 @@ export default function RecipeResults() {
       </div>
     </div>
   );
+}
+
+// Helper functions
+function generateTitle(ingredients: any[], mealType: string): string {
+  const protein = ingredients.find(i => i.ingredient.category === 'protein');
+  const carb = ingredients.find(i => i.ingredient.category === 'carbs');
+  
+  const mealPrefix = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+  return `${mealPrefix} ${protein?.ingredient.name || 'Protein'} with ${carb?.ingredient.name || 'Carbs'}`;
+}
+
+function generateInstructions(ingredients: any[], equipment: string[], mealType: string): string[] {
+  const instructions: string[] = [];
+  const protein = ingredients.find(i => i.ingredient.category === 'protein');
+  const carb = ingredients.find(i => i.ingredient.category === 'carbs');
+  const veg = ingredients.find(i => i.ingredient.category === 'vegetables');
+  
+  instructions.push(`Gather all ingredients: ${ingredients.map(i => `${i.quantity}g ${i.ingredient.name}`).join(', ')}`);
+  
+  if (protein) {
+    instructions.push(`Prepare ${protein.ingredient.name} using your ${equipment[0] || 'cooking equipment'}`);
+  }
+  
+  if (carb) {
+    instructions.push(`Cook ${carb.ingredient.name} according to package instructions`);
+  }
+  
+  if (veg) {
+    instructions.push(`Prepare ${veg.ingredient.name} by washing and cutting as needed`);
+  }
+  
+  instructions.push('Plate all components together and serve immediately');
+  
+  return instructions;
+}
+
+function estimateCookingTime(ingredients: any[]): number {
+  return 20 + ingredients.length * 5;
+}
+
+function generateExplanation(targets: MacroTargets, actual: any, ingredients: any[]): string {
+  const protein = ingredients.find(i => i.ingredient.category === 'protein');
+  return `This ${targets.mealType} recipe is optimized to match your macro targets. The ${protein?.ingredient.name || 'protein source'} provides quality protein while keeping the meal within your calorie goals. Macros are balanced to support your fitness objectives.`;
 }
