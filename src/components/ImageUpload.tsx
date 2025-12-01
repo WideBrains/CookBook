@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Upload, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -19,6 +20,7 @@ export function ImageUpload({ onIngredientsDetected }: ImageUploadProps) {
   const [previews, setPreviews] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [detectedIngredients, setDetectedIngredients] = useState<DetectedIngredient[]>([]);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.6);
 
   const handleFileSelect = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -79,7 +81,7 @@ export function ImageUpload({ onIngredientsDetected }: ImageUploadProps) {
 
       // Send all images in a single batch request
       const { data, error } = await supabase.functions.invoke('analyze-ingredients', {
-        body: { images: base64Images }
+        body: { images: base64Images, confidenceThreshold }
       });
 
       if (error) throw error;
@@ -94,7 +96,7 @@ export function ImageUpload({ onIngredientsDetected }: ImageUploadProps) {
         setDetectedIngredients(ingredients);
         
         const detectedIds = ingredients
-          .filter((ing: DetectedIngredient) => ing.confidence >= 0.6)
+          .filter((ing: DetectedIngredient) => ing.confidence >= confidenceThreshold)
           .map((ing: DetectedIngredient) => ing.ingredientId)
           .filter((id): id is string => id !== null);
 
@@ -123,6 +125,25 @@ export function ImageUpload({ onIngredientsDetected }: ImageUploadProps) {
 
   return (
     <div className="space-y-4">
+      <div className="space-y-4 mb-4">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-foreground">
+            Confidence Threshold: {Math.round(confidenceThreshold * 100)}%
+          </label>
+        </div>
+        <Slider
+          value={[confidenceThreshold]}
+          onValueChange={(value) => setConfidenceThreshold(value[0])}
+          min={0.3}
+          max={0.95}
+          step={0.05}
+          className="w-full"
+        />
+        <p className="text-xs text-muted-foreground">
+          Lower threshold detects more ingredients but with less certainty. Higher threshold is more selective.
+        </p>
+      </div>
+
       <div
         className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
         onClick={() => document.getElementById('file-input')?.click()}
