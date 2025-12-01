@@ -63,40 +63,47 @@ export function ImageUpload({ onIngredientsDetected }: ImageUploadProps) {
     setDetectedIngredients([]);
 
     try {
-      const allDetectedIds = new Set<string>();
-
-      for (const image of images) {
-        const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve) => {
-          reader.onload = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            resolve(base64);
-          };
-          reader.readAsDataURL(image);
-        });
-
-        const base64Image = await base64Promise;
-
-        const { data, error } = await supabase.functions.invoke('analyze-ingredients', {
-          body: { image: base64Image }
-        });
-
-        if (error) throw error;
-
-        if (data.ingredients && data.ingredients.length > 0) {
-          setDetectedIngredients(prev => [...prev, ...data.ingredients]);
-          data.ingredients.forEach((ing: DetectedIngredient) => {
-            if (ing.ingredientId && ing.confidence >= 0.6) {
-              allDetectedIds.add(ing.ingredientId);
-            }
+      // Convert all images to base64
+      const base64Images = await Promise.all(
+        images.map(image => {
+          return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const base64 = (reader.result as string).split(',')[1];
+              resolve(base64);
+            };
+            reader.readAsDataURL(image);
           });
-        }
-      }
+        })
+      );
 
-      const detectedCount = allDetectedIds.size;
-      if (detectedCount > 0) {
-        toast.success(`Detected ${detectedCount} ingredients!`);
-        onIngredientsDetected(Array.from(allDetectedIds));
+      // Send all images in a single batch request
+      const { data, error } = await supabase.functions.invoke('analyze-ingredients', {
+        body: { images: base64Images }
+      });
+
+      if (error) throw error;
+
+      if (data.detectedIngredients && data.detectedIngredients.length > 0) {
+        const ingredients = data.detectedIngredients.map((ing: any) => ({
+          name: ing.name,
+          confidence: ing.confidence,
+          ingredientId: ing.id
+        }));
+        
+        setDetectedIngredients(ingredients);
+        
+        const detectedIds = ingredients
+          .filter((ing: DetectedIngredient) => ing.confidence >= 0.6)
+          .map((ing: DetectedIngredient) => ing.ingredientId)
+          .filter((id): id is string => id !== null);
+
+        if (detectedIds.length > 0) {
+          toast.success(`Detected ${detectedIds.length} ingredients!`);
+          onIngredientsDetected(detectedIds);
+        } else {
+          toast.warning('No ingredients detected with sufficient confidence');
+        }
       } else {
         toast.warning('No ingredients detected with sufficient confidence');
       }
