@@ -98,7 +98,7 @@ export default function Auth() {
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center gap-2 mb-4">
             <ChefHat className="w-10 h-10 text-primary" />
-            <h1 className="text-3xl font-bold text-foreground">MacroFit</h1>
+            <h1 className="text-3xl font-bold text-foreground">CookBook</h1>
           </div>
           <p className="text-muted-foreground text-center">
             Sign in to save your recipes and track your nutrition
