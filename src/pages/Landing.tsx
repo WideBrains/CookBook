@@ -106,7 +106,7 @@ export default function Landing() {
             <a href="#" className="hover:text-primary transition-colors">GitHub</a>
           </div>
           <p className="text-center text-xs text-muted-foreground mt-4">
-            © 2024 MacroFit Recipe Generator. Built for research purposes.
+            © 2024 CookBook Recipe Generator. Built for research purposes.
           </p>
         </div>
       </footer>

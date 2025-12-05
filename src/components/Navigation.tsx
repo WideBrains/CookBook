@@ -45,7 +45,7 @@ export function Navigation() {
             <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
               <ChefHat className="w-5 h-5 text-primary" />
             </div>
-            MacroFit
+            CookBook
           </Link>
 
           {/* Navigation Links */}
